@@ -7,9 +7,15 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "engines": {
-  "node": "4.2.1"
+    "node": "5.5.0"
+  },
+  "bin": {
+    "s3ss_checker": "./index.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "commander": "^2.9.0"
+  }
 }
