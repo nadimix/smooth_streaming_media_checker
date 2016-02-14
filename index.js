@@ -8,6 +8,11 @@ const fs = require('fs');
 const program = require('commander');
 const numWorkers = require('os').cpus().length;
 
+let urls = [];
+let urls_to_parse = 0;
+let num_done = 0;
+const start_time = Math.floor(new Date()); // timestamp in ms
+
 if (cluster.isMaster) {
   // Parsing arguments
   program
@@ -19,40 +24,42 @@ if (cluster.isMaster) {
     process.exit(1);
   }
 
-  const file = fs.readFileSync(process.argv[2], 'utf8');
-  const urls = file.replace(/\s+/g, '').split(',');
+  let lineReader = require('readline').createInterface({
+    input: require('fs').createReadStream(process.argv[2])
+  });
 
-  const urls_to_parse = urls.length;
-  const num_per_worker = Math.round(urls_to_parse/numWorkers);
-  const start_time = Math.floor(new Date()); // timestamp in ms
-  let num_done = 0;
+  lineReader.on('line', function (line) {
+    urls.push(line);
+  });
 
-  // Starts workers
-  console.log(`Master cluster setting up ${numWorkers} workers...`);
-  console.log(`URLS to parse: ${urls_to_parse} with ${numWorkers} workers`);
+  lineReader.on('close', ()=> {
+    urls_to_parse = urls.length;
+    const num_per_worker = Math.round(urls_to_parse/numWorkers);
+    console.log(`URLS_TO_PARSE: ${urls_to_parse}`);
+    // Starts workers
+    console.log(`Master cluster setting up ${numWorkers} workers...`);
+    console.log(`URLS to parse: ${urls_to_parse} with ${numWorkers} workers`);
 
-  let pointer = 0;
-  for (let i = 0; i < numWorkers; i++) {
-    let worker = cluster.fork();
-    let to = pointer + num_per_worker;
-    let urls_to_process = urls.slice(pointer, to);
-    console.log(`from: ${pointer}, to: ${to}`);
-    worker.send(urls_to_process);
-    pointer += num_per_worker;
-  }
+    let pointer = 0;
+    for (let i = 0; i < numWorkers; i++) {
+      let worker = cluster.fork();
+      let to = pointer + num_per_worker;
+      let urls_to_process = urls.slice(pointer, to);
+      console.log(`from: ${pointer}, to: ${to}`);
+      worker.send(urls_to_process);
+      pointer += num_per_worker;
+    }
+  });
 
   cluster.on('online', (worker) => { console.log(`Worker ${worker.process.pid} is online!`); });
   cluster.on('message', (msg)=>{
     num_done += 1;
     if(msg.status !== 200) {
-      console.error(`msg: ${msg.status}, from: ${msg.from}, url: ${msg.url}`);
+      console.error(`\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`);
     }
-    if(msg.error) {
-      console.error(`ERROR: ${msg.error}`);
-    }
-    if (msg.error || msg.status !== 200 || num_done === urls_to_parse) {
+    if (msg.status !== 200 || num_done === urls_to_parse) {
       let end_time =  Math.floor(new Date()); // timestamp in ms
-      console.log(`Started at: ${start_time}, Finished at: ${end_time}, Duration: ${(end_time - start_time)/1000} secs`);
+      console.log(`\nStarted at: ${start_time}, Finished at: ${end_time}, Duration: ${(end_time - start_time)/1000} secs`);
       process.exit();
     }
   });
@@ -62,14 +69,14 @@ if (cluster.isMaster) {
 }
 
 if (cluster.isWorker) {
-  console.log(`Process ${process.pid} is listening to all incoming requests`);
   process.on('message', (urls) => {
     for (let j = 0; j < urls.length; j++) {
       let url_options = url_parser.parse(urls[j]);
       let options = {
         hostname: url_options.hostname,
         path: url_options.path,
-        method: 'HEAD'
+        method: 'HEAD',
+        agent: false
       }
       let req = http.request(options, (res) => {
         process.send({
@@ -81,6 +88,7 @@ if (cluster.isWorker) {
       req.on('error', (e) => {
         process.send({
           error: e.message,
+          url: `${url_options.hostname}${url_options.path}`,
           from: process.pid
         });
       });
