@@ -1,17 +1,20 @@
 #!/usr/bin/env node
 'use strict';
 
-const url_parser = require('url');
-const http = require('http');
-const cluster = require('cluster');
-const fs = require('fs');
-const program = require('commander');
-const numWorkers = require('os').cpus().length;
+const url_parser  = require('url'),
+      http        = require('http'),
+      cluster     = require('cluster'),
+      fs          = require('fs'),
+      program     = require('commander'),
+      numWorkers  = require('os').cpus().length,
+      start_time  = Math.floor(new Date())
 
-let urls = [];
-let urls_to_parse = 0;
-let num_done = 0;
-const start_time = Math.floor(new Date()); // timestamp in ms
+let urls          = [],
+    urls_to_parse = 0,
+    num_done      = 0
+
+http.globalAgent.maxSockets = 3096
+
 
 if (cluster.isMaster) {
   // Parsing arguments
@@ -24,7 +27,7 @@ if (cluster.isMaster) {
     process.exit(1);
   }
 
-  let lineReader = require('readline').createInterface({
+  let lineReader  = require('readline').createInterface({
     input: require('fs').createReadStream(process.argv[2])
   });
 
@@ -35,10 +38,8 @@ if (cluster.isMaster) {
   lineReader.on('close', ()=> {
     urls_to_parse = urls.length;
     const num_per_worker = Math.round(urls_to_parse/numWorkers);
-    console.log(`URLS_TO_PARSE: ${urls_to_parse}`);
-    // Starts workers
-    console.log(`Master cluster setting up ${numWorkers} workers...`);
     console.log(`URLS to parse: ${urls_to_parse} with ${numWorkers} workers`);
+    console.log(`Master cluster setting up ${numWorkers} workers...`);
 
     let pointer = 0;
     for (let i = 0; i < numWorkers; i++) {
@@ -52,7 +53,7 @@ if (cluster.isMaster) {
   });
 
   cluster.on('online', (worker) => { console.log(`Worker ${worker.process.pid} is online!`); });
-  cluster.on('message', (msg)=>{
+  cluster.on('message', (msg) =>{
     num_done += 1;
     if(msg.status !== 200) {
       console.error(`\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`);
@@ -75,8 +76,7 @@ if (cluster.isWorker) {
       let options = {
         hostname: url_options.hostname,
         path: url_options.path,
-        method: 'HEAD',
-        agent: false
+        method: 'HEAD'
       }
       let req = http.request(options, (res) => {
         process.send({
