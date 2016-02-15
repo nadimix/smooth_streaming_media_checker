@@ -32,7 +32,7 @@ if (cluster.isMaster) {
   lineReader.on('close', () => {
     urls_to_parse = urls.length
     const num_per_worker = Math.round(urls_to_parse/numWorkers);
-    console.log(`URLS to parse: ${urls_to_parse} with ${numWorkers} workers`)
+    console.log(`URL to parse: ${urls_to_parse} with ${numWorkers} workers`)
     console.log(`Master cluster setting up ${numWorkers} workers...`)
 
     let pointer = 0
@@ -40,22 +40,23 @@ if (cluster.isMaster) {
       let worker = cluster.fork();
       let to = pointer + num_per_worker;
       let urls_to_process = urls.slice(pointer, to);
-      console.log(`from: ${pointer}, to: ${to}`);
+      //console.log(`from: ${pointer}, to: ${to}`);
       worker.send(urls_to_process);
       pointer += num_per_worker;
     }
   });
 
-  cluster.on('online', (worker) => { console.log(`Worker ${worker.process.pid} is online!`) })
+  cluster.on('online', (worker) => { /*console.log(`Worker ${worker.process.pid} is online!`)*/ })
   cluster.on('message', (msg) =>{
     num_done++
+
     if(msg.status !== 200) {
       console.error(`\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`)
     }
     if (msg.status !== 200 || num_done === urls_to_parse) {
       let end_time =  Math.floor(new Date())
       let duration = (end_time - start_time)/1000
-      console.log(`\nStarted at: ${start_time}, Finished at: ${end_time}, Duration: ${duration} secs`)
+      write_report(msg, start_time, end_time, duration)
       process.exit()
     }
   })
@@ -95,4 +96,16 @@ if (cluster.isWorker) {
       req.end()
     }
   })
+}
+
+function write_report(msg, start_time, end_time, duration) {
+  let status_msg = `\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`
+  let duration_msg = `\nStarted at: ${start_time}, Finished at: ${end_time}, Duration: ${duration} secs`
+  if (msg.status !== 200) {
+    console.error(`${status_msg}${duration_msg}`)
+    fs.writeFileSync('report.txt', `${status_msg}${duration_msg}`, 'utf8');
+  } else {
+    console.log(`${duration_msg}`)
+    fs.writeFileSync('report.txt', `${duration_msg}`, 'utf8');
+  }
 }
