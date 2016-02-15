@@ -6,7 +6,7 @@ const url_parser  = require('url'),
       cluster     = require('cluster'),
       fs          = require('fs'),
       program     = require('commander'),
-      numWorkers  = require('os').cpus().length * 2,
+      numWorkers  = require('os').cpus().length * 3,
       start_time  = Math.floor(new Date())
 
 let urls          = [],
@@ -52,15 +52,16 @@ if (cluster.isMaster) {
     if(msg.status !== 200) {
       console.error(`\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`)
     }
-    if (/*msg.status !== 200 || */num_done === urls_to_parse) {
-      let end_time =  Math.floor(new Date()) // timestamp in ms
-      console.log(`\nStarted at: ${start_time}, Finished at: ${end_time}, Duration: ${(end_time - start_time)/1000} secs`)
+    if (msg.status !== 200 || num_done === urls_to_parse) {
+      let end_time =  Math.floor(new Date())
+      let duration = (end_time - start_time)/1000
+      console.log(`\nStarted at: ${start_time}, Finished at: ${end_time}, Duration: ${duration} secs`)
       process.exit()
     }
-  });
+  })
   cluster.on('exit', (worker, code, signal) => {
     console.log(`Worker ${worker.process.pid} died with code: ${code} and signal: ${signal}`)
-  });
+  })
 }
 
 if (cluster.isWorker) {
@@ -80,7 +81,10 @@ if (cluster.isWorker) {
           from: process.pid
         })
       })
-      req.on('data', (data) => { console.log(data) })
+      req.on('data', (data) => {
+        console.log(data)
+        req.end()
+      })
       req.on('error', (e) => {
         process.send({
           error: e.message,
