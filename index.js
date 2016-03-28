@@ -5,24 +5,56 @@ const url_parser  = require('url'),
       http        = require('http'),
       cluster     = require('cluster'),
       fs          = require('fs'),
-      program     = require('commander'),
-      numWorkers  = require('os').cpus().length * 3,
-      start_time  = Math.floor(new Date())
+      async       = require('async'),
+      numWorkers  = require('os').cpus().length,
+      manifestURL = process.argv[2];
 
-let urls          = [],
-    urls_to_parse = 0,
-    num_done      = 0
+let urls        = [],
+    done        = 0,
+    concurrent  = 0
 
 if (cluster.isMaster) {
-  program
-    .version('0.0.1')
-    .parse(process.argv)
-
-  if (process.argv.length < 3) {
-    console.error('usage: s3ss_checker <file_with_smooth_streaming_urls_to_check>')
+  if (!manifestURL) {
+    console.error('usage: node index.js <url_client_manifest>')
     process.exit(1);
   }
 
+  let hola = async.series({
+    downloadManifest: (callback) => {
+      http.get(manifestURL, (res) => {
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          callback(null, chunk);
+        });
+      }).on('error', (e) => {
+        console.error(`Got error ${e.message} when downloading the manifest`);
+        process.exit(1);
+      });
+    }
+  }, (err, results) => {
+    console.log(results)
+    return results;
+  });
+
+  console.log(hola)
+
+  //let manifest = downloadManifest(manifestURL)
+  //console.info(manifest)
+}
+
+function downloadManifest(url) {
+  http.get(url, (res) => {
+    res.setEncoding('utf8');
+    res.on('data', (chunk) => {
+      return chunk;
+    });
+  }).on('error', (e) => {
+    console.error(`Got error ${e.message} when downloading the manifest`);
+    process.exit(1);
+  });
+}
+
+/*
   let lineReader = require('readline').createInterface({
     input: require('fs').createReadStream(process.argv[2])
   })
@@ -30,40 +62,30 @@ if (cluster.isMaster) {
   lineReader.on('line', (line) => { urls.push(line) })
 
   lineReader.on('close', () => {
-    urls_to_parse = urls.length
-    const num_per_worker = Math.round(urls_to_parse/numWorkers);
-    console.log(`URL to parse: ${urls_to_parse} with ${numWorkers} workers`)
-    console.log(`Master cluster setting up ${numWorkers} workers...`)
-
-    let pointer = 0
-    for (let i = 0; i < numWorkers; i++) {
-      let worker = cluster.fork();
-      let to = pointer + num_per_worker;
-      let urls_to_process = urls.slice(pointer, to);
-      //console.log(`from: ${pointer}, to: ${to}`);
-      worker.send(urls_to_process);
-      pointer += num_per_worker;
+    while(concurrent < urls.length && concurrent < numWorkers) {
+      startWorker(urls)
     }
   });
+*/
 
-  cluster.on('online', (worker) => { /*console.log(`Worker ${worker.process.pid} is online!`)*/ })
-  cluster.on('message', (msg) =>{
-    num_done++
+cluster.on('message', (msg) => {
+  done++
+  concurrent--
+  // console.info(`DONE url: ${msg.url}, msg: ${msg.status || msg.error}`)
+  if (done < total && total-done >= numWorkers) {
+    console.log(`Processed ${done} of ${total}`)
+    startWorker(urls)
+  } else if (done === total || msg.status !== 200) {
+    console.log(`END`)
+    write_report(msg)
+    process.exit()
+  }
+})
 
-    if(msg.status !== 200) {
-      console.error(`\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`)
-    }
-    if (msg.status !== 200 || num_done === urls_to_parse) {
-      let end_time =  Math.floor(new Date())
-      let duration = (end_time - start_time)/1000
-      write_report(msg, start_time, end_time, duration)
-      process.exit()
-    }
-  })
-  cluster.on('exit', (worker, code, signal) => {
-    console.log(`Worker ${worker.process.pid} died with code: ${code} and signal: ${signal}`)
-  })
-}
+cluster.on('exit', (worker, code, signal) => {
+  console.log(`Worker ${worker.process.pid} died with code: ${code} and signal: ${signal}`)
+})
+
 
 if (cluster.isWorker) {
   process.on('message', (urls) => {
@@ -98,11 +120,16 @@ if (cluster.isWorker) {
   })
 }
 
-function write_report(msg, start_time, end_time, duration) {
-  let status_msg = `\nfrom: ${msg.from}, url: ${msg.url}, msg: ${msg.status || msg.error}`
-  let duration_msg = `\nStarted at: ${start_time}, Finished at: ${end_time}, Duration: ${duration} secs`
+function startWorker(urls) {
+  let worker = cluster.fork()
+  concurrent++
+  console.info(`Running ${concurrent} workers of ${numWorkers}.`)
+  worker.send(urls.pop())
+}
+
+function write_report(msg) {
   if (msg.status !== 200) {
-    console.error(`${status_msg}${duration_msg}`)
+    console.error(`FAILED: ${msg.url} with ${msg.status}`)
     fs.writeFileSync('report.txt', `${status_msg}${duration_msg}`, 'utf8');
   } else {
     console.log(`${duration_msg}`)
