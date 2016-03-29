@@ -5,7 +5,7 @@ const url_parser  = require('url'),
       http        = require('http'),
       cluster     = require('cluster'),
       fs          = require('fs'),
-      async       = require('async'),
+      xml2js      = require('xml2js'),
       numWorkers  = require('os').cpus().length,
       manifestURL = process.argv[2];
 
@@ -19,39 +19,42 @@ if (cluster.isMaster) {
     process.exit(1);
   }
 
-  let hola = async.series({
-    downloadManifest: (callback) => {
-      http.get(manifestURL, (res) => {
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-          callback(null, chunk);
-        });
-      }).on('error', (e) => {
-        console.error(`Got error ${e.message} when downloading the manifest`);
-        process.exit(1);
-      });
-    }
-  }, (err, results) => {
-    console.log(results)
-    return results;
+  httpGet(manifestURL)
+  .then(
+    (manifest) => {
+      //console.info(manifest);
+      return parseXML(manifest);
+    })
+  .then((json) => {})
+  .catch((reason) => {
+    console.error('Something went wrong', reason);
+    process.exit(1);
   });
-
-  console.log(hola)
 
   //let manifest = downloadManifest(manifestURL)
   //console.info(manifest)
 }
 
-function downloadManifest(url) {
-  http.get(url, (res) => {
-    res.setEncoding('utf8');
-    res.on('data', (chunk) => {
-      return chunk;
+function httpGet(url) {
+  return new Promise((resolve, reject) => {
+    http.get(url, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        resolve(data);
+      });
+    }).on('error', (e) => {
+      reject(new Error(e.message));
     });
-  }).on('error', (e) => {
-    console.error(`Got error ${e.message} when downloading the manifest`);
-    process.exit(1);
   });
+}
+
+function parseXML(xml) {
+  return new Promise((resolve, reject) => {
+
+  })
 }
 
 /*
